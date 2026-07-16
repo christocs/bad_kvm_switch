@@ -20,6 +20,11 @@ const ADL_MAX_PATH: usize = 256;
 const ADL_OK: i32 = 0;
 const ADL_DISPLAY_DISPLAYINFO_DISPLAYCONNECTED: i32 = 0x0000_0001;
 const ADL_DISPLAY_DISPLAYINFO_DISPLAYMAPPED: i32 = 0x0000_0002;
+/// AMD/ATI's official PCI-SIG vendor ID is the hex value 0x1002, but ADL's
+/// `AdapterInfo::i_vendor_id` reports it as the plain decimal number 1002
+/// (confirmed empirically -- it parses the digits out of the vendor ID
+/// rather than reporting the raw hex value).
+const AMD_VENDOR_ID: i32 = 1002;
 
 #[repr(C)]
 struct AdapterInfo {
@@ -145,14 +150,31 @@ impl Adl {
             bail!("ADL_Main_Control_Create failed with code {result}");
         }
 
-        Ok(Self {
+        let adl = Self {
             _lib: lib,
             control_destroy,
             adapter_count,
             adapter_info,
             display_info,
             ddc_block_access,
-        })
+        };
+
+        // Every public entry point (`probe_displays`, `set_vcp_alt_mode`) goes
+        // through `load()`, so gating here keeps non-AMD systems from ever
+        // reaching an ADL call.
+        let adapters = adl.adapters()?;
+        let has_amd = adapters
+            .iter()
+            .any(|a| a.i_present != 0 && a.i_vendor_id == AMD_VENDOR_ID);
+        if !has_amd {
+            bail!(
+                "No active AMD GPU detected ({} adapter(s) found, none AMD) -- the LG DDC \
+                 alt-mode workaround requires an AMD GPU, since it uses AMD's ADL SDK",
+                adapters.len()
+            );
+        }
+
+        Ok(adl)
     }
 
     fn adapters(&self) -> Result<Vec<AdapterInfo>> {
