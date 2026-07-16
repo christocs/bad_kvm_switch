@@ -1,5 +1,7 @@
 use anyhow::Result;
-use nusb::MaybeFuture;
+use nusb::hotplug::HotplugEvent;
+use nusb::{DeviceId, MaybeFuture};
+use std::collections::HashSet;
 
 /// Print every currently-attached USB device as one tab-separated line:
 /// `vendor:product<TAB>manufacturer<TAB>product<TAB>serial`.
@@ -19,6 +21,45 @@ pub fn print_device_list() -> Result<()> {
             device.product_string().unwrap_or(""),
             device.serial_number().unwrap_or(""),
         );
+    }
+    Ok(())
+}
+
+/// Block forever, printing a line every time the device with the given
+/// `vendor_id:product_id` connects or disconnects.
+///
+/// `watch_devices()` only gives a `Stream`, not a blocking iterator, so
+/// `futures_lite::stream::block_on` drives it without needing a full async
+/// runtime like tokio. Disconnect events carry only an opaque `DeviceId`
+/// (not the vendor/product info), so a small set of "currently connected
+/// IDs we care about" is tracked across the loop to recognize our target
+/// device disconnecting.
+pub fn watch(vendor_id: u16, product_id: u16) -> Result<()> {
+    let mut known_ids: HashSet<DeviceId> = HashSet::new();
+
+    // Snapshot devices already connected before the watch starts, so a
+    // disconnect of an already-plugged-in target device isn't missed.
+    for device in nusb::list_devices().wait()? {
+        if device.vendor_id() == vendor_id && device.product_id() == product_id {
+            println!("already connected: {vendor_id:04x}:{product_id:04x}");
+            known_ids.insert(device.id());
+        }
+    }
+
+    let watch = nusb::watch_devices()?;
+    for event in futures_lite::stream::block_on(watch) {
+        match event {
+            HotplugEvent::Connected(info)
+                if info.vendor_id() == vendor_id && info.product_id() == product_id =>
+            {
+                println!("connected: {vendor_id:04x}:{product_id:04x}");
+                known_ids.insert(info.id());
+            }
+            HotplugEvent::Disconnected(id) if known_ids.remove(&id) => {
+                println!("disconnected: {vendor_id:04x}:{product_id:04x}");
+            }
+            _ => {}
+        }
     }
     Ok(())
 }

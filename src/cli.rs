@@ -16,6 +16,10 @@ pub enum Command {
     /// Use this to find the VID:PID of the keyboard/mouse you want to watch for.
     List,
 
+    /// Watch a USB device's connect/disconnect events and print each one
+    /// (debug tool; hardcoded target device until config support lands).
+    Watch,
+
     /// Read a VCP feature's current value from the first detected monitor (debug tool).
     DdcGet {
         /// VCP feature code, hex (e.g. 0x60, 60, F4).

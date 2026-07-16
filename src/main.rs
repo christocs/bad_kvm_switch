@@ -7,11 +7,18 @@ mod usb_watch;
 use clap::Parser;
 use cli::{Cli, Command};
 
+// Hardcoded until M5 adds config-file support: the NK65 keyboard, which
+// goes through the KVM switch (confirmed against `--list` while toggling
+// the switch).
+const TARGET_VID: u16 = 0x8968;
+const TARGET_PID: u16 = 0x4e4b;
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
         Some(Command::List) => usb_watch::print_device_list(),
+        Some(Command::Watch) => usb_watch::watch(TARGET_VID, TARGET_PID),
         Some(Command::DdcGet { feature }) => {
             let value = ddc_control::get_vcp(feature)?;
             println!("0x{feature:02x} = 0x{value:04x} ({value})");
