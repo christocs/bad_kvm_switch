@@ -4,6 +4,18 @@ Step-by-step workflows for setting up, testing, and extending this project.
 See [AGENTS.md](AGENTS.md) for build instructions and architecture, and
 [README.md](README.md) for the overview.
 
+## First time opening this repo in VSCode
+
+[.vscode/extensions.json](.vscode/extensions.json) lists recommended
+extensions (`rust-analyzer`, TOML support, a Rust-capable debugger,
+dependency-version hints, GitHub Actions support) — VSCode shows an
+"Install All" prompt automatically when you open the folder, if you don't
+already have them. [.vscode/launch.json](.vscode/launch.json) has a debug
+configuration (breakpoints, step-through via CodeLLDB) for every CLI
+subcommand, so you can step through the `unsafe` FFI code in
+`adl.rs`/`linux_i2c.rs` instead of `println!`-debugging it — open the "Run
+and Debug" panel and pick the command you want to step through.
+
 ## Find your peripheral's VID:PID
 
 ```
@@ -105,6 +117,57 @@ Push to a branch with a PR, or check
 `windows-latest`/`ubuntu-latest`. Local cross-checking from Windows for
 Linux doesn't fully work (see AGENTS.md's build section) — CI is the real
 verification for the platform you're not currently on.
+
+## Set up MCP servers (for agents working on this repo)
+
+[.mcp.json](.mcp.json) declares three project-shared MCP servers — they'll
+be offered to anyone (or any agent) working in this repo, pending a
+one-time per-person approval prompt:
+
+- **`playwright`** — browser automation for reading JS-rendered docs sites
+  (needed historically for AMD's GPUOpen documentation, which plain HTML
+  fetches can't render). No setup beyond Node/`npx` being available.
+- **`rust-docs`** — structured Rust crate documentation lookups (signatures,
+  types, trait impls) instead of scraping docs.rs by hand. Needs the binary
+  installed first: `cargo install docsrs-mcp`. No API key or credentials —
+  it just fetches from docs.rs over plain HTTP.
+- **`github`** — repo browsing, issues, PRs, code search. Auth is handled
+  via the **GitHub CLI** (`gh`), not a raw token in a dotfile — see below.
+
+### One-command setup
+
+```
+./scripts/setup-mcp.ps1    # Windows
+./scripts/setup-mcp.sh     # Linux
+```
+
+Installs `docsrs-mcp` (`cargo install`) and the GitHub CLI if missing, then
+tells you whether `gh` still needs authenticating. Safe to re-run — every
+step checks before installing. It can't complete GitHub auth for you
+(needs your browser), so if it prints a `gh auth login` reminder, run that
+yourself, then re-run the script (or just `gh auth token`) to confirm it
+took.
+
+`.mcp.json`'s `github` entry uses a `headersHelper` that calls
+`gh auth token` fresh on every connection, so a plaintext token never sits
+in an env var or config file — it lives only in `gh`'s own OS-keychain-backed
+storage.
+
+After the script finishes: restart VSCode / your Claude Code session, then
+approve the MCP servers the first time each is offered (`/mcp` to check
+status).
+
+**Windows-specific note**: the `headersHelper` command uses bash-style
+quoting (`echo '{"..."}'` with command substitution), which only works
+correctly through a POSIX-compatible shell — confirmed it produces broken
+JSON if run through plain PowerShell (the substitution gets wrapped in
+extra newlines). This works because Claude Code's Windows tooling already
+relies on **Git Bash** (bundled with [Git for Windows](https://git-scm.com/),
+which you need installed anyway to work with this repo) rather than
+PowerShell/cmd.exe for shell commands like this one. If `gh` isn't on the
+PATH that Git Bash sees, or Git Bash itself isn't installed, the helper
+will fail — install Git for Windows normally (default settings add both
+Git and its bundled Bash to PATH) and this should just work.
 
 ## Continue development (milestone pattern)
 

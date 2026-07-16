@@ -1,0 +1,13 @@
+{
+  "recommendations": [
+    "GitHub.vscode-github-actions",
+    "mhutchie.git-graph",
+    "eamodio.gitlens",
+    "usernamehw.errorlens",
+    "rust-lang.rust-analyzer",
+    "tamasfe.even-better-toml",
+    "vadimcn.vscode-lldb",
+    "fill-labs.dependi",
+    "Anthropic.claude-code"
+  ]
+}

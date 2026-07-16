@@ -1,0 +1,80 @@
+{
+  // One debug config per CLI subcommand, using CodeLLDB's Cargo
+  // integration (it runs `cargo build` and debugs the resulting binary
+  // directly, so there's no hardcoded target/debug/... path to break
+  // between Windows/Linux). Edit the hex feature/value placeholders in
+  // "args" to whatever you're actually testing -- these are starting
+  // points, not fixed values.
+  //
+  // "ddc-adl-probe"/"ddc-adl-set" only do anything on Windows/AMD;
+  // "ddc-linux-alt-set" only on Linux -- same as running them from a
+  // terminal directly, picking one on the wrong OS just hits that
+  // command's own "Windows/AMD-only" or "Linux-only" error.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug: run (default, no subcommand)",
+      "cargo": { "args": ["build", "--bin=bad_kvm_switch"] },
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug: list",
+      "cargo": { "args": ["build", "--bin=bad_kvm_switch"] },
+      "args": ["list"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug: watch",
+      "cargo": { "args": ["build", "--bin=bad_kvm_switch"] },
+      "args": ["watch"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug: ddc-get",
+      "cargo": { "args": ["build", "--bin=bad_kvm_switch"] },
+      "args": ["ddc-get", "0x60"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug: ddc-set",
+      "cargo": { "args": ["build", "--bin=bad_kvm_switch"] },
+      "args": ["ddc-set", "0x60", "0x0f"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug: ddc-adl-probe (Windows/AMD)",
+      "cargo": { "args": ["build", "--bin=bad_kvm_switch"] },
+      "args": ["ddc-adl-probe"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug: ddc-adl-set (Windows/AMD)",
+      "cargo": { "args": ["build", "--bin=bad_kvm_switch"] },
+      "args": ["ddc-adl-set", "0xf4", "0xd0", "--adapter", "5", "--display", "0"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug: ddc-linux-alt-set (Linux)",
+      "cargo": { "args": ["build", "--bin=bad_kvm_switch"] },
+      "args": ["ddc-linux-alt-set", "0xf4", "0xd0"],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

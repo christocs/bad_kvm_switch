@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headersHelper": "echo '{\"Authorization\": \"Bearer '\"$(gh auth token)\"'\"}'"
+    },
+    "rust-docs": {
+      "command": "docsrs-mcp"
+    }
+  }
+}
