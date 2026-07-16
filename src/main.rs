@@ -5,6 +5,7 @@ mod config;
 mod ddc_control;
 #[cfg(target_os = "linux")]
 mod linux_i2c;
+mod service;
 mod usb_watch;
 
 use clap::Parser;
@@ -56,6 +57,9 @@ fn main() -> anyhow::Result<()> {
         Some(Command::DdcLinuxAltSet { .. }) => {
             anyhow::bail!("ddc-linux-alt-set is Linux-only (uses raw i2c-dev)")
         }
+        Some(Command::Install) => service::install(),
+        Some(Command::Uninstall) => service::uninstall(),
+        Some(Command::Status) => service::status(),
         None => {
             let config = load_config(cli.config.as_deref())?;
             init_logging(&config.log_level);

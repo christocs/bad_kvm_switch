@@ -75,6 +75,16 @@ pub enum Command {
         #[arg(value_parser = parse_hex_u8)]
         value: u8,
     },
+
+    /// Install as a per-user background service (systemd user unit on
+    /// Linux, a Startup-folder shortcut on Windows) and start it now.
+    Install,
+
+    /// Remove the background service installed by `install`.
+    Uninstall,
+
+    /// Check whether the background service is installed/running.
+    Status,
 }
 
 pub(crate) fn parse_hex_u8(s: &str) -> Result<u8, String> {

@@ -110,6 +110,37 @@ monitor to a different input via its OSD first, then toggle the physical
 KVM switch away and back — it should auto-switch back within a couple of
 seconds.
 
+## Install as a background service
+
+```
+cargo run -- install     # copies the binary to a stable location, sets up
+                          # auto-start, and starts it immediately
+cargo run -- status       # check whether it's installed/running
+cargo run -- uninstall    # remove it
+```
+
+Per-user only on both platforms (no admin/root, no system-wide service) —
+Linux gets a `systemd --user` unit (`~/.config/systemd/user/bad_kvm_switch.service`,
+`systemctl --user status bad_kvm_switch` to check directly), Windows gets a
+Startup-folder shortcut (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`).
+Both copy the currently-running binary to a stable per-OS data directory
+first, so the service keeps working after a `cargo clean` or a deleted
+build directory — it's not pointing at `target/debug/...`.
+
+`install` starts the service immediately (Linux: `systemctl --user enable
+--now`; Windows: spawns it directly with a suppressed console window) —
+don't run it unless you're ready for it to actually start switching your
+monitor on future USB events, same caution as running the real end-to-end
+loop above.
+
+Two real bugs were caught testing the Windows `status` check live, worth
+knowing about if you're touching `service.rs`: PowerShell's `-ne $null` on
+a possibly-empty collection doesn't behave like a plain boolean check (use
+`if (Get-Process ...) { ... }` instead), and matching by process name
+alone always finds at least the `status` command's own process (it *is* a
+`bad_kvm_switch.exe`) — the fix excludes the current PID and matches
+specifically against the installed binary's path.
+
 ## Verify both platforms build
 
 Push to a branch with a PR, or check

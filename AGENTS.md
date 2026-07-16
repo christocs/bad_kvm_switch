@@ -94,6 +94,14 @@ platform-specific:
   channel on Linux, via a raw `i2c_transfer` block write (`ddc-i2c` +
   `i2c-linux`), reusing `ddc-i2c`'s own device enumeration rather than
   re-discovering `/dev/i2c-*` buses independently.
+- `service.rs` — per-user background service install/uninstall/status
+  (systemd user unit on Linux, a Startup-folder shortcut on Windows).
+  Internally cfg-gated per OS behind a shared `platform` module, following
+  the same pattern as `main.rs`'s `switch_lg_alt_mode`. Both platforms copy
+  the currently-running binary to a stable per-OS data directory
+  (`directories::ProjectDirs::data_local_dir()`) before installing, so the
+  service doesn't end up pointing at a `target/debug/...` path that a
+  later `cargo clean` would break.
 
 `switch_method` in config picks between the standard DDC path and the
 alt-mode path; alt-mode is Windows/AMD + Linux only so far (see
@@ -133,6 +141,17 @@ alt-mode path; alt-mode is Windows/AMD + Linux only so far (see
   `ADL_Display_DDCBlockAccess_Get` (adapter *and* display scoped) is the
   one that actually works — this was a real dead end during development,
   not an untried option.
+- **PowerShell's `$collection -ne $null`** doesn't behave like a plain
+  boolean check when `$collection` might be empty (array-comparison
+  semantics, not scalar comparison) — `service.rs`'s Windows `status`
+  check silently reported "running" when nothing was, using this pattern.
+  Use `if ($collection) { ... } else { ... }` (truthy check) instead.
+- **Matching a running process by name alone always finds at least
+  yourself**, if the checking process shares that name. `service.rs`'s
+  Windows `status` command *is* a `bad_kvm_switch.exe` process while it
+  runs, so `Get-Process -Name bad_kvm_switch` trivially matched itself.
+  Exclude the current PID (`std::process::id()`) and match against the
+  *installed* binary's specific path, not just the process name.
 
 ## Testing
 

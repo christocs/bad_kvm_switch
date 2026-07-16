@@ -37,11 +37,19 @@ powered off.
 
 ## Status
 
-Core pipeline works end-to-end and has been live-tested: USB hotplug
-detection → DDC/CI switch, on both the standard MCCS path and a
-vendor-specific "alt mode" side channel (see below) on Windows and Linux.
-Not yet done: background-service auto-install, retry/backoff polish. See
-the todo list in-repo for the current milestone.
+**Windows**: fully live-tested end-to-end — USB hotplug detection → DDC/CI
+switch (both the standard MCCS path and the vendor-specific "alt mode"
+side channel, see below) → per-user background service install, all
+confirmed working against real hardware.
+
+**Linux**: the same alt-mode side channel is implemented (`src/linux_i2c.rs`,
+raw I2C block write) and the systemd user-service install path is written,
+but neither has been run on real Linux hardware yet — verification is
+pending. Local cross-compilation from Windows can't fully check this code
+(see AGENTS.md), so CI and an actual Linux test are the real verification.
+
+Not yet done: retry/backoff around transient DDC failures, graceful
+`Ctrl+C` shutdown. See the todo list in-repo for the current milestone.
 
 ## Two ways to switch the input
 
@@ -113,9 +121,17 @@ Then run it:
 cargo run
 ```
 
-See [SKILLS.md](SKILLS.md) for how to find each of these values for your
-own hardware, and for the debug subcommands (`list`, `watch`, `ddc-get`,
-`ddc-adl-probe`, etc.) that let you test each piece in isolation.
+Or install it as a per-user background service (auto-starts on login, no
+admin/root needed):
+
+```
+cargo run -- install
+```
+
+See [SKILLS.md](SKILLS.md) for how to find each config value for your own
+hardware, the debug subcommands (`list`, `watch`, `ddc-get`,
+`ddc-adl-probe`, etc.) that let you test each piece in isolation, and more
+on `install`/`status`/`uninstall`.
 
 ## Credits
 
