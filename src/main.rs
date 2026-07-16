@@ -1,32 +1,23 @@
 #[cfg(target_os = "windows")]
 mod adl;
 mod cli;
+mod config;
 mod ddc_control;
 mod usb_watch;
 
 use clap::Parser;
 use cli::{Cli, Command};
-
-// Hardcoded until M5 adds config-file support.
-// The NK65 keyboard, which goes through the KVM switch (confirmed against
-// `--list` while toggling the switch).
-const TARGET_VID: u16 = 0x8968;
-const TARGET_PID: u16 = 0x4e4b;
-// This PC's own monitor input, in LG's DDC alt-mode encoding (feature
-// 0xF4), on the ADL adapter/display confirmed working in M2.
-#[cfg(target_os = "windows")]
-const MY_INPUT_ADAPTER: i32 = 5;
-#[cfg(target_os = "windows")]
-const MY_INPUT_DISPLAY: i32 = 0;
-#[cfg(target_os = "windows")]
-const MY_INPUT_VALUE: u8 = 0xd0; // DisplayPort
+use config::{Config, SwitchMethod};
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
         Some(Command::List) => usb_watch::print_device_list(),
-        Some(Command::Watch) => usb_watch::watch(TARGET_VID, TARGET_PID, || {}),
+        Some(Command::Watch) => {
+            let config = load_config(cli.config.as_deref())?;
+            usb_watch::watch(config.usb_vendor_id, config.usb_product_id, || {})
+        }
         Some(Command::DdcGet { feature }) => {
             let value = ddc_control::get_vcp(feature)?;
             println!("0x{feature:02x} = 0x{value:04x} ({value})");
@@ -53,17 +44,48 @@ fn main() -> anyhow::Result<()> {
         Some(Command::DdcAdlSet { .. }) => {
             anyhow::bail!("ddc-adl-set is Windows/AMD-only (uses ADL)")
         }
-        #[cfg(target_os = "windows")]
-        None => usb_watch::watch(TARGET_VID, TARGET_PID, || {
-            if let Err(e) = adl::set_vcp_alt_mode(0xf4, MY_INPUT_VALUE, MY_INPUT_ADAPTER, MY_INPUT_DISPLAY) {
-                eprintln!("failed to switch monitor input: {e:?}");
-            }
-        }),
-        #[cfg(not(target_os = "windows"))]
         None => {
-            anyhow::bail!(
-                "no default run mode yet for this OS -- the LG alt-mode switch is Windows/AMD-only so far (Linux support is a later milestone). Run with --help to see available debug subcommands."
-            )
+            let config = load_config(cli.config.as_deref())?;
+            init_logging(&config.log_level);
+            usb_watch::watch(config.usb_vendor_id, config.usb_product_id, move || {
+                if let Err(e) = switch_to_my_input(&config) {
+                    tracing::error!("failed to switch monitor input: {e:?}");
+                }
+            })
         }
     }
+}
+
+fn load_config(path: Option<&std::path::Path>) -> anyhow::Result<Config> {
+    Config::load(path).map_err(anyhow::Error::from)
+}
+
+fn init_logging(log_level: &str) {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::new(log_level))
+        .init();
+}
+
+fn switch_to_my_input(config: &Config) -> anyhow::Result<()> {
+    match config.switch_method {
+        SwitchMethod::Standard => {
+            ddc_control::set_vcp_if_needed(config.vcp_feature, config.input_value)
+        }
+        SwitchMethod::LgAltMode => switch_lg_alt_mode(config),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn switch_lg_alt_mode(config: &Config) -> anyhow::Result<()> {
+    adl::set_vcp_alt_mode(
+        config.vcp_feature,
+        config.input_value as u8,
+        config.adl_adapter,
+        config.adl_display,
+    )
+}
+
+#[cfg(not(target_os = "windows"))]
+fn switch_lg_alt_mode(_config: &Config) -> anyhow::Result<()> {
+    anyhow::bail!("switch_method = \"lg_alt_mode\" is Windows/AMD-only so far (uses ADL)")
 }

@@ -46,7 +46,7 @@ pub fn watch(vendor_id: u16, product_id: u16, mut on_connect: impl FnMut()) -> R
     // the service started, the monitor is presumably already showing us.
     for device in nusb::list_devices().wait()? {
         if device.vendor_id() == vendor_id && device.product_id() == product_id {
-            println!("already connected: {vendor_id:04x}:{product_id:04x}");
+            tracing::info!("already connected: {vendor_id:04x}:{product_id:04x}");
             known_ids.insert(device.id());
         }
     }
@@ -57,12 +57,12 @@ pub fn watch(vendor_id: u16, product_id: u16, mut on_connect: impl FnMut()) -> R
             HotplugEvent::Connected(info)
                 if info.vendor_id() == vendor_id && info.product_id() == product_id =>
             {
-                println!("connected: {vendor_id:04x}:{product_id:04x}");
+                tracing::info!("connected: {vendor_id:04x}:{product_id:04x}");
                 known_ids.insert(info.id());
                 on_connect();
             }
             HotplugEvent::Disconnected(id) if known_ids.remove(&id) => {
-                println!("disconnected: {vendor_id:04x}:{product_id:04x}");
+                tracing::info!("disconnected: {vendor_id:04x}:{product_id:04x}");
             }
             _ => {}
         }

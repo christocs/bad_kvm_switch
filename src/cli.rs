@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::path::PathBuf;
 
 /// Automatically switch a monitor's DDC/CI input based on which PC a shared
 /// USB peripheral is currently plugged into.
@@ -7,6 +8,12 @@ use clap::Parser;
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
+
+    /// Path to config.toml (default: the platform config dir, e.g.
+    /// ~/.config/bad_kvm_switch/config.toml on Linux). Only used by the
+    /// default run mode, not the debug subcommands.
+    #[arg(long, global = true)]
+    pub config: Option<PathBuf>,
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -59,12 +66,12 @@ pub enum Command {
     },
 }
 
-fn parse_hex_u8(s: &str) -> Result<u8, String> {
+pub(crate) fn parse_hex_u8(s: &str) -> Result<u8, String> {
     let trimmed = s.trim_start_matches("0x").trim_start_matches("0X");
     u8::from_str_radix(trimmed, 16).map_err(|e| format!("invalid hex byte '{s}': {e}"))
 }
 
-fn parse_hex_u16(s: &str) -> Result<u16, String> {
+pub(crate) fn parse_hex_u16(s: &str) -> Result<u16, String> {
     let trimmed = s.trim_start_matches("0x").trim_start_matches("0X");
     u16::from_str_radix(trimmed, 16).map_err(|e| format!("invalid hex value '{s}': {e}"))
 }
