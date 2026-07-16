@@ -64,6 +64,17 @@ pub enum Command {
         #[arg(long, default_value_t = 0)]
         display: i32,
     },
+
+    /// Write a VCP feature via LG's DDC alt-mode side channel, using a raw
+    /// I2C block write (Linux only; debug tool).
+    DdcLinuxAltSet {
+        /// VCP feature code, hex (e.g. 0xF4).
+        #[arg(value_parser = parse_hex_u8)]
+        feature: u8,
+        /// Value to write, hex (e.g. 0x90).
+        #[arg(value_parser = parse_hex_u8)]
+        value: u8,
+    },
 }
 
 pub(crate) fn parse_hex_u8(s: &str) -> Result<u8, String> {

@@ -3,6 +3,8 @@ mod adl;
 mod cli;
 mod config;
 mod ddc_control;
+#[cfg(target_os = "linux")]
+mod linux_i2c;
 mod usb_watch;
 
 use clap::Parser;
@@ -43,6 +45,16 @@ fn main() -> anyhow::Result<()> {
         #[cfg(not(target_os = "windows"))]
         Some(Command::DdcAdlSet { .. }) => {
             anyhow::bail!("ddc-adl-set is Windows/AMD-only (uses ADL)")
+        }
+        #[cfg(target_os = "linux")]
+        Some(Command::DdcLinuxAltSet { feature, value }) => {
+            linux_i2c::set_vcp_alt_mode(feature, value)?;
+            println!("0x{feature:02x} alt-mode set to 0x{value:02x} via raw I2C");
+            Ok(())
+        }
+        #[cfg(not(target_os = "linux"))]
+        Some(Command::DdcLinuxAltSet { .. }) => {
+            anyhow::bail!("ddc-linux-alt-set is Linux-only (uses raw i2c-dev)")
         }
         None => {
             let config = load_config(cli.config.as_deref())?;
@@ -85,7 +97,12 @@ fn switch_lg_alt_mode(config: &Config) -> anyhow::Result<()> {
     )
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
+fn switch_lg_alt_mode(config: &Config) -> anyhow::Result<()> {
+    linux_i2c::set_vcp_alt_mode(config.vcp_feature, config.input_value as u8)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn switch_lg_alt_mode(_config: &Config) -> anyhow::Result<()> {
-    anyhow::bail!("switch_method = \"lg_alt_mode\" is Windows/AMD-only so far (uses ADL)")
+    anyhow::bail!("switch_method = \"lg_alt_mode\" is only implemented for Windows and Linux so far")
 }
