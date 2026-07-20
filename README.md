@@ -43,6 +43,19 @@ vendor "alt mode" side channel → per-user background service install) is
 confirmed working against real hardware: an LG 39GX950B-B monitor on an AMD
 GPU.
 
+**Windows + NVIDIA** — ⚠️ **implemented, unverified.** The NvAPI alt-mode
+backend (`src/nvapi.rs`) compiles/links/runs cleanly up to the NvAPI-init
+boundary, but hasn't been run on real NVIDIA hardware — the actual monitor
+switch is unverified (the wire frame is byte-identical to the
+confirmed-working AMD path, and the NvAPI usage matches a confirmed-working
+reference tool). The standard (non-alt-mode) path works on any GPU vendor.
+
+**Windows + Intel** — ❌ **alt mode not implemented.** Intel integrated
+graphics has no accessible userspace raw-I2C path, which the LG alt-mode
+side channel requires, so `switch_method = "lg_alt_mode"` isn't supported
+on Intel. The standard DDC/CI path (`switch_method = "standard"`) still
+works if your monitor honors it.
+
 **Linux** — ⚠️ **implemented, unverified.** The alt-mode side channel
 (`src/linux_i2c.rs`, raw I2C block write, GPU-vendor agnostic) and the
 systemd user-service install path are written, but neither has been run on
@@ -72,6 +85,10 @@ implements that side channel directly, over whatever raw-I2C path the
 system offers:
 
 - **Windows + AMD** — AMD's ADL SDK (`src/adl.rs`). Default backend.
+- **Windows + NVIDIA** — NVIDIA's NvAPI (`src/nvapi.rs`). Set
+  `alt_mode_backend = "nvidia"`.
+- **Linux** — a raw `/dev/i2c-*` block write (`src/linux_i2c.rs`), GPU-vendor
+  agnostic.
 
 (Windows + Intel has no accessible raw-I2C path, so alt-mode isn't
 supported there.) See [AGENTS.md](AGENTS.md) for the full story of how this
@@ -106,6 +123,11 @@ usb_device_id = "8968:4e4b"
 # which you need per SKILLS.md.
 switch_method = "lg_alt_mode"
 
+# Only used for lg_alt_mode on Windows: which GPU vendor's SDK to reach the
+# side channel through. "amd" (default, needs adl_adapter/adl_display
+# below) or "nvidia" (needs neither). Ignored on Linux.
+alt_mode_backend = "amd"
+
 # VCP feature code to write, as hex. 0x60 for "standard"; LG alt-mode
 # monitors use 0xF4.
 vcp_feature = "0xF4"
@@ -116,8 +138,9 @@ vcp_feature = "0xF4"
 # LG alt mode (0xF4): hdmi1=0x90, hdmi2=0x91, dp=0xD0, usbc=0xD1.
 input_value = "0xD0"
 
-# Only used when switch_method = "lg_alt_mode" on Windows (via ADL).
-# Find yours with `bad_kvm_switch ddc-adl-probe`.
+# Only used when switch_method = "lg_alt_mode" + alt_mode_backend = "amd"
+# on Windows. Find yours with `bad_kvm_switch ddc-adl-probe`. (Not needed
+# for the "nvidia" backend or on Linux.)
 adl_adapter = 5
 adl_display = 0
 

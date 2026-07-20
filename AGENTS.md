@@ -89,11 +89,18 @@ platform-specific:
 - `adl.rs` (`#[cfg(target_os = "windows")]`) — LG "DDC alt-mode" side
   channel via AMD's legacy ADL SDK, dynamically loaded (`libloading`) —
   see "Known traps" below for why this exists instead of a normal DDC
-  call.
+  call. Used when `alt_mode_backend = "amd"` (the default).
+- `nvapi.rs` (`#[cfg(target_os = "windows")]`) — the same alt-mode side
+  channel via NVIDIA's NvAPI raw I2C, using the `nvapi` crate's safe
+  `PhysicalGpu::i2c_write` wrapper. Used when `alt_mode_backend =
+  "nvidia"`. The wire frame is byte-identical to `adl.rs`'s; the two
+  differ only in how the GPU SDK is reached. See "Known traps" for the
+  `address << 1` gotcha.
 - `linux_i2c.rs` (`#[cfg(target_os = "linux")]`) — the same alt-mode side
   channel on Linux, via a raw `i2c_transfer` block write (`ddc-i2c` +
   `i2c-linux`), reusing `ddc-i2c`'s own device enumeration rather than
-  re-discovering `/dev/i2c-*` buses independently.
+  re-discovering `/dev/i2c-*` buses independently. GPU-vendor agnostic, so
+  `alt_mode_backend` is ignored here.
 - `service.rs` — per-user background service install/uninstall/status
   (systemd user unit on Linux, a Startup-folder shortcut on Windows).
   Internally cfg-gated per OS behind a shared `platform` module, following
@@ -104,10 +111,14 @@ platform-specific:
   later `cargo clean` would break.
 
 `switch_method` in config picks between the standard DDC path and the
-alt-mode path; alt-mode is Windows/AMD + Linux only so far (see
-`main.rs`'s `switch_lg_alt_mode`).
+alt-mode path; on Windows, `alt_mode_backend` (`amd`/`nvidia`) then picks
+the GPU SDK (see `main.rs`'s `switch_lg_alt_mode`). Config validation only
+*requires* the `adl_adapter`/`adl_display` indices for the AMD+Windows
+combination — the NVIDIA backend brute-forces them and Linux doesn't use
+them, so demanding them everywhere would be wrong (this was a real gap:
+the check used to key on `cfg!(target_os = "windows")` alone).
 
-## Known traps (read before touching `adl.rs`/`linux_i2c.rs`)
+## Known traps (read before touching `adl.rs`/`nvapi.rs`/`linux_i2c.rs`)
 
 - **`libloading::Library::get::<T>()`** must be instantiated with the
   *actual function pointer type* (`T = unsafe extern "C" fn(...) -> ...`),
@@ -141,6 +152,20 @@ alt-mode path; alt-mode is Windows/AMD + Linux only so far (see
   `ADL_Display_DDCBlockAccess_Get` (adapter *and* display scoped) is the
   one that actually works — this was a real dead end during development,
   not an untried option.
+- **The `nvapi` crate's `PhysicalGpu::i2c_write` takes the 7-bit I2C
+  address and shifts it left itself** (`i2cDevAddress = address << 1`
+  internally). So `nvapi.rs` passes `0x37`, NOT the pre-shifted `0x6E` —
+  even though the DDC checksum is still seeded with the 8-bit `0x6E`.
+  Mirroring the reference tool's pre-shifted `0x6E` into the safe wrapper
+  would double-shift and target the wrong address. (`adl.rs` differs: its
+  `DDCBlockAccess` buffer includes the 8-bit `0x6E` as the first byte
+  directly.)
+- **NvAPI alt-mode has to brute-force display mask × port** — there's no
+  wrapped connected-outputs query, and an `i2c_write` can report OK for an
+  output the monitor isn't behind, so `nvapi.rs` sends to every
+  mask/port combination and doesn't stop on first success. This mirrors
+  the confirmed-working reference (`meer-cha/lg-input-switch`). Wrong
+  targets fail silently with no visible effect, so it's safe.
 - **PowerShell's `$collection -ne $null`** doesn't behave like a plain
   boolean check when `$collection` might be empty (array-comparison
   semantics, not scalar comparison) — `service.rs`'s Windows `status`

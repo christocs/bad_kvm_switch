@@ -5,6 +5,8 @@ mod config;
 mod ddc_control;
 #[cfg(target_os = "linux")]
 mod linux_i2c;
+#[cfg(target_os = "windows")]
+mod nvapi;
 mod service;
 mod usb_watch;
 
@@ -70,6 +72,22 @@ fn main() -> anyhow::Result<()> {
         #[cfg(not(target_os = "linux"))]
         Some(Command::DdcLinuxAltSet { .. }) => {
             anyhow::bail!("ddc-linux-alt-set is Linux-only (uses raw i2c-dev)")
+        }
+        #[cfg(target_os = "windows")]
+        Some(Command::DdcNvapiProbe) => nvapi::probe(),
+        #[cfg(not(target_os = "windows"))]
+        Some(Command::DdcNvapiProbe) => {
+            anyhow::bail!("ddc-nvapi-probe is Windows/NVIDIA-only (uses NvAPI)")
+        }
+        #[cfg(target_os = "windows")]
+        Some(Command::DdcNvapiSet { feature, value }) => {
+            nvapi::set_vcp_alt_mode(feature, value)?;
+            println!("0x{feature:02x} alt-mode set to 0x{value:02x} via NvAPI");
+            Ok(())
+        }
+        #[cfg(not(target_os = "windows"))]
+        Some(Command::DdcNvapiSet { .. }) => {
+            anyhow::bail!("ddc-nvapi-set is Windows/NVIDIA-only (uses NvAPI)")
         }
         Some(Command::Install) => service::install(),
         Some(Command::Uninstall) => service::uninstall(),
@@ -187,12 +205,17 @@ fn switch_to_my_input(config: &Config) -> anyhow::Result<()> {
 
 #[cfg(target_os = "windows")]
 fn switch_lg_alt_mode(config: &Config) -> anyhow::Result<()> {
-    adl::set_vcp_alt_mode(
-        config.vcp_feature,
-        config.alt_mode_input_value(),
-        config.adl_adapter,
-        config.adl_display,
-    )
+    match config.alt_mode_backend {
+        config::AltModeBackend::Amd => adl::set_vcp_alt_mode(
+            config.vcp_feature,
+            config.alt_mode_input_value(),
+            config.adl_adapter,
+            config.adl_display,
+        ),
+        config::AltModeBackend::Nvidia => {
+            nvapi::set_vcp_alt_mode(config.vcp_feature, config.alt_mode_input_value())
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]

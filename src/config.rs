@@ -12,9 +12,25 @@ pub enum SwitchMethod {
     /// `ddc-i2c`).
     Standard,
     /// LG's DDC alt-mode side channel, for monitors that ignore the
-    /// standard command (confirmed needed for the 45GX950A). Windows/AMD
-    /// only for now -- see `adl.rs`.
+    /// standard command (confirmed needed for the 39GX950B-B). On Windows
+    /// the GPU vendor determines how the side channel is reached -- see
+    /// [`AltModeBackend`]; on Linux it's always raw I2C (`linux_i2c.rs`).
     LgAltMode,
+}
+
+/// On Windows, the LG alt-mode side channel needs raw I2C to the monitor,
+/// which is only reachable through the GPU vendor's SDK -- there's no
+/// vendor-neutral path. This picks which one. Ignored on Linux (raw
+/// `/dev/i2c-*` works regardless of GPU vendor).
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AltModeBackend {
+    /// AMD's ADL SDK (`adl.rs`). Needs `adl_adapter`/`adl_display` indices.
+    #[default]
+    Amd,
+    /// NVIDIA's NvAPI (`nvapi.rs`). Needs no extra config -- it brute-forces
+    /// the display mask/port.
+    Nvidia,
 }
 
 /// The shape of `config.toml` as written by hand -- strings everywhere
@@ -25,6 +41,9 @@ pub enum SwitchMethod {
 struct RawConfig {
     usb_device_id: String,
     switch_method: SwitchMethod,
+    /// Only consulted when `switch_method = "lg_alt_mode"` on Windows.
+    #[serde(default)]
+    alt_mode_backend: AltModeBackend,
     vcp_feature: String,
     input_value: String,
     adl_adapter: Option<i32>,
@@ -78,6 +97,7 @@ pub struct Config {
     pub usb_vendor_id: u16,
     pub usb_product_id: u16,
     pub switch_method: SwitchMethod,
+    pub alt_mode_backend: AltModeBackend,
     pub vcp_feature: u8,
     pub input_value: u16,
     pub adl_adapter: i32,
@@ -124,21 +144,21 @@ impl Config {
             return Err(ConfigError::AltModeValueTooLarge(raw.input_value.clone()));
         }
 
-        let (adl_adapter, adl_display) = match raw.switch_method {
-            SwitchMethod::LgAltMode => {
-                // The ADL indices are only meaningful on Windows, but
-                // requiring them on Linux too would be wrong -- Linux's raw
-                // I2C path doesn't use them. Only Windows enforces them.
-                if cfg!(target_os = "windows") {
-                    match (raw.adl_adapter, raw.adl_display) {
-                        (Some(a), Some(d)) => (a, d),
-                        _ => return Err(ConfigError::MissingAdlIndices),
-                    }
-                } else {
-                    (raw.adl_adapter.unwrap_or(0), raw.adl_display.unwrap_or(0))
-                }
+        // The ADL adapter/display indices are specific to the AMD backend
+        // on Windows -- the NVIDIA (NvAPI) backend brute-forces them, and
+        // Linux's raw I2C path doesn't use them at all. So they're only
+        // *required* for lg_alt_mode + AMD + Windows; everywhere else they
+        // default to 0 and are ignored.
+        let needs_adl_indices = raw.switch_method == SwitchMethod::LgAltMode
+            && raw.alt_mode_backend == AltModeBackend::Amd
+            && cfg!(target_os = "windows");
+        let (adl_adapter, adl_display) = if needs_adl_indices {
+            match (raw.adl_adapter, raw.adl_display) {
+                (Some(a), Some(d)) => (a, d),
+                _ => return Err(ConfigError::MissingAdlIndices),
             }
-            SwitchMethod::Standard => (raw.adl_adapter.unwrap_or(0), raw.adl_display.unwrap_or(0)),
+        } else {
+            (raw.adl_adapter.unwrap_or(0), raw.adl_display.unwrap_or(0))
         };
 
         // Fail fast on a bad log_level here rather than at subscriber
@@ -150,6 +170,7 @@ impl Config {
             usb_vendor_id,
             usb_product_id,
             switch_method: raw.switch_method,
+            alt_mode_backend: raw.alt_mode_backend,
             vcp_feature,
             input_value,
             adl_adapter,

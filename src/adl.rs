@@ -5,9 +5,10 @@
 //! `IADLXI2C` (see the `adlx`/vendored patch still in this repo) -- ADLX's
 //! interface is scoped per-GPU and never reached the monitor's DDC pins
 //! (every `ADLX_I2C_LINE` reported "unsupported" for the DDC address).
-//! `ADL_Display_DDCBlockAccess_Get` is scoped per adapter *and display*,
-//! and is confirmed working on this exact GPU+monitor combination by two
-//! independent open-source projects: amildahl/amdddc-windows and
+//! `ADL_Display_DDCBlockAccess_Get` is scoped per adapter *and display*.
+//! This project confirmed it live on an LG 39GX950B-B + AMD GPU; the same
+//! approach is independently corroborated by two open-source projects on
+//! the closely-related LG 45GX950A-B: amildahl/amdddc-windows and
 //! phillip9933/LGInputSwitch (MIT). Struct layouts below are transcribed
 //! from AMD's public, MIT-licensed `adl_sdk.h`/`adl_structures.h`/
 //! `adl_defines.h` (GPUOpen-LibrariesAndSDKs/display-library).
@@ -168,8 +169,9 @@ impl Adl {
             .any(|a| a.i_present != 0 && a.i_vendor_id == AMD_VENDOR_ID);
         if !has_amd {
             bail!(
-                "No active AMD GPU detected ({} adapter(s) found, none AMD) -- the LG DDC \
-                 alt-mode workaround requires an AMD GPU, since it uses AMD's ADL SDK",
+                "No active AMD GPU detected ({} adapter(s) found, none AMD). The AMD alt-mode \
+                 backend uses AMD's ADL SDK. If you have an NVIDIA GPU, set \
+                 `alt_mode_backend = \"nvidia\"` in your config instead.",
                 adapters.len()
             );
         }

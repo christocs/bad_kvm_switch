@@ -36,7 +36,7 @@ by name.
    (e.g. `0x11` for HDMI-1, `0x0f` for DisplayPort-1) and watch the
    monitor. If it switches, use `switch_method = "standard"` — you're
    done, no alt-mode setup needed.
-2. If nothing happens (common on some LG panels, confirmed on a 45GX950A),
+2. If nothing happens (common on some LG panels, confirmed on a 39GX950B-B),
    you need `switch_method = "lg_alt_mode"`. Continue below.
 
 ## Find your monitor's alt-mode input codes
@@ -64,6 +64,19 @@ listed should work; there's no need to test all of them. Then:
 ```sh
 cargo run -- ddc-adl-set 0xf4 0xd0 --adapter <N> --display <N>
 ```
+
+Use `alt_mode_backend = "amd"` (the default) in config.
+
+**Windows + NVIDIA** — no indices needed (it brute-forces the display
+mask/port):
+
+```sh
+cargo run -- ddc-nvapi-probe    # smoke test: lists NVIDIA GPU(s) + displays
+cargo run -- ddc-nvapi-set 0xf4 0xd0
+```
+
+Use `alt_mode_backend = "nvidia"` in config. (Windows + Intel: no raw-I2C
+path exists, so alt-mode isn't supported.)
 
 **Linux** — GPU-vendor agnostic, no indices needed:
 

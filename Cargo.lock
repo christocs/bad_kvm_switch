@@ -83,6 +83,7 @@ dependencies = [
  "libc",
  "libloading",
  "nusb",
+ "nvapi",
  "serde",
  "thiserror 2.0.18",
  "toml",

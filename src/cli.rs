@@ -76,6 +76,21 @@ pub enum Command {
         value: u8,
     },
 
+    /// List the NVIDIA GPU(s) NvAPI sees and their attached displays
+    /// (Windows/NVIDIA only; debug tool).
+    DdcNvapiProbe,
+
+    /// Write a VCP feature via LG's DDC alt-mode side channel, using
+    /// NVIDIA's NvAPI raw I2C (Windows/NVIDIA only; debug tool).
+    DdcNvapiSet {
+        /// VCP feature code, hex (e.g. 0xF4).
+        #[arg(value_parser = parse_hex_u8)]
+        feature: u8,
+        /// Value to write, hex (e.g. 0x90).
+        #[arg(value_parser = parse_hex_u8)]
+        value: u8,
+    },
+
     /// Install as a per-user background service (systemd user unit on
     /// Linux, a Startup-folder shortcut on Windows) and start it now.
     Install,
