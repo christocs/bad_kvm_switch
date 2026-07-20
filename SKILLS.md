@@ -48,7 +48,9 @@ directly (next section) rather than assuming.
 
 ## Test the alt-mode switch directly (before wiring up config)
 
-**Windows**: first find your ADL adapter/display indices —
+The alt-mode path depends on your GPU + OS. Pick your case:
+
+**Windows + AMD** — first find your ADL adapter/display indices:
 
 ```sh
 cargo run -- ddc-adl-probe
@@ -63,16 +65,15 @@ listed should work; there's no need to test all of them. Then:
 cargo run -- ddc-adl-set 0xf4 0xd0 --adapter <N> --display <N>
 ```
 
-**Linux**:
+**Linux** — GPU-vendor agnostic, no indices needed:
 
 ```sh
 cargo run -- ddc-linux-alt-set 0xf4 0xd0
 ```
 
-No adapter/display selection needed — it uses the first DDC/CI-capable
-I2C device found (this project doesn't yet support multi-monitor
-selection; see `ddc_control::first_display`'s doc comment for where that
-would go).
+It uses the first DDC/CI-capable I2C device found (this project doesn't yet
+support multi-monitor selection; see `ddc_control::first_display`'s doc
+comment for where that would go).
 
 Both commands write directly and print success/failure — no physical
 switch interaction needed to test this piece in isolation. **Careful**:

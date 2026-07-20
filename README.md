@@ -37,16 +37,18 @@ powered off.
 
 ## Status
 
-**Windows**: fully live-tested end-to-end — USB hotplug detection → DDC/CI
-switch (both the standard MCCS path and the vendor-specific "alt mode"
-side channel, see below) → per-user background service install, all
-confirmed working against real hardware.
+**Windows + AMD** — ✅ **supported, fully live-tested.** The whole pipeline
+(USB hotplug detection → DDC/CI switch, both the standard MCCS path and the
+vendor "alt mode" side channel → per-user background service install) is
+confirmed working against real hardware: an LG 39GX950B-B monitor on an AMD
+GPU.
 
-**Linux**: the same alt-mode side channel is implemented (`src/linux_i2c.rs`,
-raw I2C block write) and the systemd user-service install path is written,
-but neither has been run on real Linux hardware yet — verification is
-pending. Local cross-compilation from Windows can't fully check this code
-(see AGENTS.md), so CI and an actual Linux test are the real verification.
+**Linux** — ⚠️ **implemented, unverified.** The alt-mode side channel
+(`src/linux_i2c.rs`, raw I2C block write, GPU-vendor agnostic) and the
+systemd user-service install path are written, but neither has been run on
+real Linux hardware yet. Local cross-compilation from Windows can't fully
+check this code (see AGENTS.md), so CI and an actual Linux test are the
+real verification.
 
 All original milestones are done: the service retries transient DDC
 failures (3 attempts, spaced), exits cleanly on `Ctrl+C`/`SIGTERM`, and
@@ -60,17 +62,21 @@ background service isn't a black box.
 Most monitors support the standard DDC/CI "Input Select" command
 (`switch_method = "standard"`) — plain, cross-platform, and reliable.
 
-Some monitors (confirmed on an LG 45GX950A/UltraGear) silently ignore that
-command entirely — DDC reads work, but writes to the input-select feature
-are ACK'd and then dropped on the floor. These monitors have a
+Some monitors (confirmed on an LG 39GX950B-B/UltraGear) silently ignore
+that command entirely — DDC reads work, but writes to the input-select
+feature are ACK'd and then dropped on the floor. These monitors have a
 manufacturer-specific "alt mode" side channel instead (LG's uses DDC/CI
 source address `0x50` in place of the standard `0x51`, which neither
 platform's normal DDC API can request). `switch_method = "lg_alt_mode"`
-implements that side channel directly: via AMD's ADL SDK on Windows
-(`src/adl.rs`), and via a raw I2C block write on Linux (`src/linux_i2c.rs`).
-See [AGENTS.md](AGENTS.md) for the full story of how that was figured out
-— it involved a wrong turn through AMD's newer ADLX SDK before landing on
-the legacy ADL API that actually works.
+implements that side channel directly, over whatever raw-I2C path the
+system offers:
+
+- **Windows + AMD** — AMD's ADL SDK (`src/adl.rs`). Default backend.
+
+(Windows + Intel has no accessible raw-I2C path, so alt-mode isn't
+supported there.) See [AGENTS.md](AGENTS.md) for the full story of how this
+was figured out — it involved a wrong turn through AMD's newer ADLX SDK
+before landing on the legacy ADL API that actually works.
 
 ## Build
 

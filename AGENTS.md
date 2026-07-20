@@ -121,7 +121,7 @@ alt-mode path; alt-mode is Windows/AMD + Linux only so far (see
   4098 decimal). Confirmed empirically in `adl.rs`'s `AMD_VENDOR_ID`
   constant — don't "fix" it back to `0x1002`.
 - **Standard DDC/CI (`0x60` Input Select) doesn't work at all** on some
-  monitors (confirmed on an LG 45GX950A: reads succeed, writes are
+  monitors (confirmed on an LG 39GX950B-B: reads succeed, writes are
   silently ignored — ACK'd but no effect, and the value doesn't even
   persist). This is *why* the alt-mode side channel
   (`adl.rs`/`linux_i2c.rs`) exists. It uses DDC/CI source address `0x50`
