@@ -66,6 +66,11 @@ pub enum ConfigError {
     MissingAdlIndices,
     #[error("invalid log_level '{0}': {1} (expected one of trace, debug, info, warn, error)")]
     InvalidLogLevel(String, String),
+    #[error(
+        "input_value '{0}' doesn't fit in one byte, but switch_method \"lg_alt_mode\" sends a \
+         single-byte value (e.g. hdmi1=0x90, dp=0xD0)"
+    )]
+    AltModeValueTooLarge(String),
 }
 
 #[derive(Debug)]
@@ -81,9 +86,17 @@ pub struct Config {
 }
 
 impl Config {
+    /// The single-byte value alt mode sends. Guaranteed to fit: `validate`
+    /// rejects `lg_alt_mode` configs whose `input_value` exceeds one byte.
+    pub fn alt_mode_input_value(&self) -> u8 {
+        debug_assert!(self.switch_method == SwitchMethod::LgAltMode);
+        self.input_value as u8
+    }
+
     /// Load and validate config from `path`, or the platform default
     /// (`~/.config/bad_kvm_switch/config.toml` on Linux,
-    /// `%APPDATA%\bad_kvm_switch\config.toml` on Windows) if `path` is `None`.
+    /// `%APPDATA%\bad_kvm_switch\config\config.toml` on Windows) if `path`
+    /// is `None`.
     pub fn load(path: Option<&Path>) -> Result<Self, ConfigError> {
         let path = match path {
             Some(p) => p.to_path_buf(),
@@ -105,11 +118,26 @@ impl Config {
         let input_value = parse_hex_u16(&raw.input_value)
             .map_err(|e| ConfigError::InvalidInputValue(raw.input_value.clone(), e))?;
 
+        // Alt mode sends a single-byte value; catch an oversized one here
+        // rather than silently truncating with `as u8` at switch time.
+        if raw.switch_method == SwitchMethod::LgAltMode && input_value > u16::from(u8::MAX) {
+            return Err(ConfigError::AltModeValueTooLarge(raw.input_value.clone()));
+        }
+
         let (adl_adapter, adl_display) = match raw.switch_method {
-            SwitchMethod::LgAltMode => match (raw.adl_adapter, raw.adl_display) {
-                (Some(a), Some(d)) => (a, d),
-                _ => return Err(ConfigError::MissingAdlIndices),
-            },
+            SwitchMethod::LgAltMode => {
+                // The ADL indices are only meaningful on Windows, but
+                // requiring them on Linux too would be wrong -- Linux's raw
+                // I2C path doesn't use them. Only Windows enforces them.
+                if cfg!(target_os = "windows") {
+                    match (raw.adl_adapter, raw.adl_display) {
+                        (Some(a), Some(d)) => (a, d),
+                        _ => return Err(ConfigError::MissingAdlIndices),
+                    }
+                } else {
+                    (raw.adl_adapter.unwrap_or(0), raw.adl_display.unwrap_or(0))
+                }
+            }
             SwitchMethod::Standard => (raw.adl_adapter.unwrap_or(0), raw.adl_display.unwrap_or(0)),
         };
 

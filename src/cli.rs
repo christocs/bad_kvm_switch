@@ -10,8 +10,8 @@ pub struct Cli {
     pub command: Option<Command>,
 
     /// Path to config.toml (default: the platform config dir, e.g.
-    /// ~/.config/bad_kvm_switch/config.toml on Linux). Only used by the
-    /// default run mode, not the debug subcommands.
+    /// ~/.config/bad_kvm_switch/config.toml on Linux). Used by the default
+    /// run mode and `watch`; the other debug subcommands don't read config.
     #[arg(long, global = true)]
     pub config: Option<PathBuf>,
 }
@@ -23,8 +23,8 @@ pub enum Command {
     /// Use this to find the VID:PID of the keyboard/mouse you want to watch for.
     List,
 
-    /// Watch a USB device's connect/disconnect events and print each one
-    /// (debug tool; hardcoded target device until config support lands).
+    /// Watch the configured USB device's connect/disconnect events and log
+    /// each one, without switching anything (debug tool).
     Watch,
 
     /// Read a VCP feature's current value from the first detected monitor (debug tool).

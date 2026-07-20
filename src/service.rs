@@ -40,6 +40,11 @@ fn copy_self_to_install_dir() -> Result<PathBuf> {
     std::fs::create_dir_all(&dest_dir)
         .with_context(|| format!("failed to create {}", dest_dir.display()))?;
     let dest = installed_binary_path()?;
+    // Running `install` from the already-installed binary would copy the
+    // file onto itself -- nothing to do in that case.
+    if current_exe == dest {
+        return Ok(dest);
+    }
     std::fs::copy(&current_exe, &dest)
         .with_context(|| format!("failed to copy binary to {}", dest.display()))?;
     Ok(dest)
@@ -70,7 +75,7 @@ mod platform {
              After=graphical-session.target\n\
              \n\
              [Service]\n\
-             ExecStart={}\n\
+             ExecStart=\"{}\"\n\
              Restart=on-failure\n\
              RestartSec=2\n\
              \n\
@@ -82,7 +87,11 @@ mod platform {
             .with_context(|| format!("failed to write {}", unit.display()))?;
 
         run_checked(&["systemctl", "--user", "daemon-reload"])?;
-        run_checked(&["systemctl", "--user", "enable", "--now", UNIT_NAME])?;
+        run_checked(&["systemctl", "--user", "enable", UNIT_NAME])?;
+        // `restart` rather than `enable --now`: on a re-install over an
+        // already-running unit, `--now` would leave the OLD binary running;
+        // restart picks up the freshly-copied one either way.
+        run_checked(&["systemctl", "--user", "restart", UNIT_NAME])?;
         println!("Installed and started {UNIT_NAME} (binary copied to {}).", binary.display());
         println!("Check status any time with: systemctl --user status {UNIT_NAME}");
         Ok(())
@@ -161,7 +170,24 @@ mod platform {
         Ok(())
     }
 
+    /// Stop any running instance of the *installed* binary (matched by
+    /// path, excluding this process). Needed before re-install: Windows
+    /// won't let `fs::copy` overwrite a running executable, and without a
+    /// stop the fresh spawn would run alongside the old instance.
+    fn stop_installed_instance() -> Result<()> {
+        let installed = installed_binary_path()?;
+        let script = format!(
+            "Get-Process -Name bad_kvm_switch -ErrorAction SilentlyContinue | \
+             Where-Object {{ $_.Id -ne {} -and $_.Path -eq '{}' }} | \
+             Stop-Process -Force",
+            std::process::id(),
+            installed.display()
+        );
+        run_powershell(&script)
+    }
+
     pub fn install() -> Result<()> {
+        stop_installed_instance()?;
         let binary = copy_self_to_install_dir()?;
         let shortcut = startup_shortcut_path()?;
         std::fs::create_dir_all(shortcut.parent().expect("shortcut path has a parent"))?;
@@ -204,18 +230,15 @@ mod platform {
     }
 
     pub fn uninstall() -> Result<()> {
+        stop_installed_instance()?;
         let shortcut = startup_shortcut_path()?;
         if shortcut.exists() {
             std::fs::remove_file(&shortcut)
                 .with_context(|| format!("failed to remove {}", shortcut.display()))?;
-            println!("Removed startup shortcut at {}.", shortcut.display());
+            println!("Removed startup shortcut at {} and stopped the running instance.", shortcut.display());
         } else {
             println!("Not installed (no shortcut at {}).", shortcut.display());
         }
-        println!(
-            "Note: this doesn't stop an already-running instance -- close it manually \
-             (or log out/in) if one is active."
-        );
         Ok(())
     }
 

@@ -12,7 +12,7 @@ agent, or [SKILLS.md](SKILLS.md) for step-by-step setup workflows).
 
 ## How it works
 
-```
+```text
         ┌───────────────────────────┐              ┌───────────────────────────┐
         │   bad_kvm_switch (Linux)   │              │  bad_kvm_switch (Windows)  │
         │                            │              │                            │
@@ -48,8 +48,12 @@ but neither has been run on real Linux hardware yet — verification is
 pending. Local cross-compilation from Windows can't fully check this code
 (see AGENTS.md), so CI and an actual Linux test are the real verification.
 
-Not yet done: retry/backoff around transient DDC failures, graceful
-`Ctrl+C` shutdown. See the todo list in-repo for the current milestone.
+All original milestones are done: the service retries transient DDC
+failures (3 attempts, spaced), exits cleanly on `Ctrl+C`/`SIGTERM`, and
+writes rotating file logs (7 days kept) to the platform data dir
+(`%LOCALAPPDATA%\bad_kvm_switch\data\logs` on Windows,
+`~/.local/share/bad_kvm_switch/logs` on Linux) so the installed
+background service isn't a black box.
 
 ## Two ways to switch the input
 
@@ -70,7 +74,7 @@ the legacy ADL API that actually works.
 
 ## Build
 
-```
+```sh
 cargo build
 ```
 
@@ -117,14 +121,14 @@ log_level = "info"
 
 Then run it:
 
-```
+```sh
 cargo run
 ```
 
 Or install it as a per-user background service (auto-starts on login, no
 admin/root needed):
 
-```
+```sh
 cargo run -- install
 ```
 

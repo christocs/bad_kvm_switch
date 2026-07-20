@@ -18,7 +18,7 @@ and Debug" panel and pick the command you want to step through.
 
 ## Find your peripheral's VID:PID
 
-```
+```sh
 cargo run -- list
 ```
 
@@ -50,7 +50,7 @@ directly (next section) rather than assuming.
 
 **Windows**: first find your ADL adapter/display indices —
 
-```
+```sh
 cargo run -- ddc-adl-probe
 ```
 
@@ -59,13 +59,13 @@ monitor appears under multiple adapter indices (common — ADL enumerates
 one logical adapter per output/mode combination), any one of them that's
 listed should work; there's no need to test all of them. Then:
 
-```
+```sh
 cargo run -- ddc-adl-set 0xf4 0xd0 --adapter <N> --display <N>
 ```
 
 **Linux**:
 
-```
+```sh
 cargo run -- ddc-linux-alt-set 0xf4 0xd0
 ```
 
@@ -89,7 +89,7 @@ field reference and an example.
 
 ## Test the watch loop without switching anything
 
-```
+```sh
 cargo run -- watch
 ```
 
@@ -100,7 +100,7 @@ detection timing/correctness before testing the real switch behavior.
 
 ## Test the full end-to-end loop
 
-```
+```sh
 cargo run
 ```
 
@@ -112,7 +112,7 @@ seconds.
 
 ## Install as a background service
 
-```
+```sh
 cargo run -- install     # copies the binary to a stable location, sets up
                           # auto-start, and starts it immediately
 cargo run -- status       # check whether it's installed/running
@@ -127,11 +127,21 @@ Both copy the currently-running binary to a stable per-OS data directory
 first, so the service keeps working after a `cargo clean` or a deleted
 build directory — it's not pointing at `target/debug/...`.
 
-`install` starts the service immediately (Linux: `systemctl --user enable
---now`; Windows: spawns it directly with a suppressed console window) —
-don't run it unless you're ready for it to actually start switching your
+`install` starts the service immediately (Linux: `systemctl --user enable`
+then `restart`; Windows: spawns it directly with a suppressed console
+window) — don't run it unless you're ready for it to actually start switching your
 monitor on future USB events, same caution as running the real end-to-end
-loop above.
+loop above. Re-running `install` after code changes is the intended
+upgrade path: it stops the old running instance, overwrites the installed
+binary, and starts the new one. `uninstall` also stops the running
+instance, not just the autostart entry.
+
+The running service writes rotating file logs (daily, 7 kept) to
+`%LOCALAPPDATA%\bad_kvm_switch\data\logs` (Windows) /
+`~/.local/share/bad_kvm_switch/logs` (Linux) — the first place to look
+when the installed service doesn't behave, since it has no visible
+console. On Linux `journalctl --user -u bad_kvm_switch` also has the
+console stream.
 
 Two real bugs were caught testing the Windows `status` check live, worth
 knowing about if you're touching `service.rs`: PowerShell's `-ne $null` on
@@ -167,7 +177,7 @@ one-time per-person approval prompt:
 
 ### One-command setup
 
-```
+```sh
 ./scripts/setup-mcp.ps1    # Windows
 ./scripts/setup-mcp.sh     # Linux
 ```

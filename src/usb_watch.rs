@@ -67,5 +67,9 @@ pub fn watch(vendor_id: u16, product_id: u16, mut on_connect: impl FnMut()) -> R
             _ => {}
         }
     }
-    Ok(())
+
+    // The hotplug stream should never end on its own. Returning an error
+    // (not Ok) matters for the installed service: systemd's
+    // Restart=on-failure only restarts a unit that exits non-zero.
+    anyhow::bail!("USB hotplug event stream ended unexpectedly")
 }

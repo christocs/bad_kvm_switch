@@ -61,6 +61,10 @@ pub fn set_vcp_if_needed(feature: u8, value: u16) -> Result<()> {
             );
             Ok(())
         }
-        _ => set_vcp(feature, value),
+        Ok(_) => set_vcp(feature, value),
+        Err(e) => {
+            tracing::debug!("pre-switch read of 0x{feature:02x} failed ({e:#}); writing anyway");
+            set_vcp(feature, value)
+        }
     }
 }
