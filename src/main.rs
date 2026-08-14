@@ -27,6 +27,7 @@ fn main() -> anyhow::Result<()> {
             // command would print nothing at all.
             tracing_subscriber::fmt()
                 .with_env_filter(tracing_subscriber::EnvFilter::new(&config.log_level))
+                .with_ansi(stdout_supports_ansi())
                 .init();
             usb_watch::watch(config.usb_vendor_id, config.usb_product_id, || {})
         }
@@ -160,7 +161,7 @@ fn init_logging(log_level: &str) -> anyhow::Result<tracing_appender::non_blockin
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(log_level))
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_ansi(stdout_supports_ansi()))
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(file_writer)
@@ -169,6 +170,25 @@ fn init_logging(log_level: &str) -> anyhow::Result<tracing_appender::non_blockin
         .init();
 
     Ok(guard)
+}
+
+/// True only if stdout is a real terminal that can render ANSI. On Windows
+/// this also enables virtual-terminal processing so colors work in legacy
+/// cmd/conhost sessions, not just Windows Terminal; if that can't be enabled
+/// we return false so we emit plain text instead of raw escape codes.
+fn stdout_supports_ansi() -> bool {
+    use std::io::IsTerminal;
+    if !std::io::stdout().is_terminal() {
+        return false;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        enable_ansi_support::enable_ansi_support().is_ok()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        true
+    }
 }
 
 /// Retry wrapper around the actual switch: DDC/CI over I2C (or the OS's
