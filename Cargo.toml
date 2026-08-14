@@ -25,3 +25,6 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 ddc-i2c = { version = "0.2.2", features = ["with-linux", "with-linux-enumerate"] }
 i2c-linux = "0.1.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+enable-ansi-support = "0.2.1"
