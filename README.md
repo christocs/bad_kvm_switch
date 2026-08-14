@@ -43,12 +43,10 @@ vendor "alt mode" side channel → per-user background service install) is
 confirmed working against real hardware: an LG 39GX950B-B monitor on an AMD
 GPU.
 
-**Linux** — ⚠️ **implemented, unverified.** The alt-mode side channel
-(`src/linux_i2c.rs`, raw I2C block write, GPU-vendor agnostic) and the
-systemd user-service install path are written, but neither has been run on
-real Linux hardware yet. Local cross-compilation from Windows can't fully
-check this code (see AGENTS.md), so CI and an actual Linux test are the
-real verification.
+**Linux** — ✅ **supported, live-tested.** The alt-mode side channel
+(`src/linux_i2c.rs`, raw I2C block write, GPU-vendor agnostic) is confirmed
+working against the same LG 39GX950B-B monitor as the Windows path, using Ubuntu 24.04 LTS. The
+systemd user-service install path is also verified.
 
 All original milestones are done: the service retries transient DDC
 failures (3 attempts, spaced), exits cleanly on `Ctrl+C`/`SIGTERM`, and
