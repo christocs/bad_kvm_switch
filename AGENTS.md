@@ -95,13 +95,24 @@ platform-specific:
   `i2c-linux`), reusing `ddc-i2c`'s own device enumeration rather than
   re-discovering `/dev/i2c-*` buses independently.
 - `service.rs` — per-user background service install/uninstall/status
-  (systemd user unit on Linux, a Startup-folder shortcut on Windows).
+  (systemd user unit on Linux, a Task Scheduler logon task on Windows).
   Internally cfg-gated per OS behind a shared `platform` module, following
   the same pattern as `main.rs`'s `switch_lg_alt_mode`. Both platforms copy
   the currently-running binary to a stable per-OS data directory
   (`directories::ProjectDirs::data_local_dir()`) before installing, so the
   service doesn't end up pointing at a `target/debug/...` path that a
   later `cargo clean` would break.
+
+  Both platforms also *supervise* the process, which is half the point of
+  installing at all: Linux via `Restart=on-failure`, Windows via a second
+  trigger on the task — a `TimeTrigger` repeating every minute
+  indefinitely, paired with `MultipleInstancesPolicy=IgnoreNew`. While the
+  process lives the task counts as running, so each minute's run is
+  skipped; once it dies the next tick starts it again (measured recovery:
+  ~45s). Task Scheduler thus supplies the single-instance guard itself, so
+  no mutex or PID file is needed. `install` also deletes the legacy
+  Startup-folder `.lnk` left by pre-Task-Scheduler installs, so upgrading
+  can't leave two launchers racing each other.
 
 `switch_method` in config picks between the standard DDC path and the
 alt-mode path; alt-mode is Windows/AMD + Linux only so far (see
@@ -152,6 +163,36 @@ alt-mode path; alt-mode is Windows/AMD + Linux only so far (see
   runs, so `Get-Process -Name bad_kvm_switch` trivially matched itself.
   Exclude the current PID (`std::process::id()`) and match against the
   *installed* binary's specific path, not just the process name.
+- **A Startup-folder shortcut is a one-shot launcher, not supervision.**
+  The original Windows install used one, so a single death meant dead
+  until the next logon. Observed in the wild as a silent 5-day outage: the
+  process exited 2026-09-12, the machine had last booted 2026-08-22, and
+  nothing restarted it. Linux had `Restart=on-failure` the whole time —
+  the asymmetry went unnoticed because nothing reported it. Don't
+  reintroduce a launcher that has no restart path.
+- **Returning `Err` from `main` writes the error nowhere** when the process
+  runs without a console, which is the installed service's normal state.
+  Rust's `Termination` impl prints it to stderr, which is discarded, and it
+  never reaches `tracing` — so the file log simply stops mid-stream and the
+  death is undiagnosable after the fact. `run_service` therefore logs the
+  error itself *before* returning it, while the `tracing_appender`
+  `WorkerGuard` is still alive to flush it. Any new fatal path needs the
+  same treatment.
+- **Task Scheduler hands a console-subsystem binary a real console window**
+  when the task runs as the interactive user, and it stays on screen for
+  the process's entire life — unacceptable for something whose whole
+  purpose is running invisibly. `main.rs`'s `free_owned_console` calls
+  `FreeConsole`, but only when `GetConsoleProcessList` reports exactly one
+  attached process (we own the console outright). Run from a shell that
+  shell is attached too, count >= 2, so an interactive run never has its
+  terminal torn out from under it. Confirmed empirically: task-launched,
+  the process has zero visible windows and spawns no `conhost`.
+- **`New-ScheduledTaskPrincipal -LogonType` rejects the value the task XML
+  requires.** The XML schema wants `InteractiveToken`; the PowerShell
+  cmdlet's enum calls that same concept `Interactive` and hard-errors on
+  `InteractiveToken`. `service.rs` registers via XML
+  (`Register-ScheduledTask -Xml`), which avoids the mismatch entirely and
+  keeps the whole task definition in one reviewable place.
 
 ## Testing
 

@@ -146,19 +146,36 @@ mod platform {
     use super::*;
     use std::process::Command;
 
-    fn startup_shortcut_path() -> Result<PathBuf> {
-        let appdata = std::env::var_os("APPDATA")
-            .context("%APPDATA% is not set")?;
+    /// Registered under this name in the *user's* Task Scheduler library.
+    const TASK_NAME: &str = "bad_kvm_switch";
+
+    /// Where pre-Task-Scheduler installs put their launcher. Still cleaned
+    /// up by `install`/`uninstall`, so upgrading can't leave a second,
+    /// unsupervised copy starting at logon alongside the task.
+    fn legacy_startup_shortcut_path() -> Result<PathBuf> {
+        let appdata = std::env::var_os("APPDATA").context("%APPDATA% is not set")?;
         Ok(PathBuf::from(appdata)
             .join(r"Microsoft\Windows\Start Menu\Programs\Startup")
             .join("bad_kvm_switch.lnk"))
     }
 
-    /// Windows has no simple native "create a .lnk" call from Rust without
-    /// pulling in COM/IShellLink FFI -- shelling out to a one-line
-    /// PowerShell script that uses the same WScript.Shell COM object any
-    /// GUI "create shortcut" tool uses is far lighter, consistent with
-    /// already shelling out to `systemctl` on the Linux side.
+    fn remove_legacy_shortcut() -> Result<()> {
+        let shortcut = legacy_startup_shortcut_path()?;
+        if shortcut.exists() {
+            std::fs::remove_file(&shortcut)
+                .with_context(|| format!("failed to remove {}", shortcut.display()))?;
+            println!(
+                "Removed legacy startup shortcut at {} (superseded by the scheduled task).",
+                shortcut.display()
+            );
+        }
+        Ok(())
+    }
+
+    /// Windows has no simple native "register a scheduled task" call from
+    /// Rust without COM/ITaskService FFI -- shelling out to PowerShell's
+    /// ScheduledTasks module is far lighter, and consistent with already
+    /// shelling out to `systemctl` on the Linux side.
     fn run_powershell(script: &str) -> Result<()> {
         let status = Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", script])
@@ -170,10 +187,18 @@ mod platform {
         Ok(())
     }
 
+    fn powershell_output(script: &str) -> Result<String> {
+        let out = Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .output()
+            .context("failed to run powershell")?;
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }
+
     /// Stop any running instance of the *installed* binary (matched by
     /// path, excluding this process). Needed before re-install: Windows
     /// won't let `fs::copy` overwrite a running executable, and without a
-    /// stop the fresh spawn would run alongside the old instance.
+    /// stop the fresh launch would run alongside the old instance.
     fn stop_installed_instance() -> Result<()> {
         let installed = installed_binary_path()?;
         let script = format!(
@@ -186,68 +211,181 @@ mod platform {
         run_powershell(&script)
     }
 
-    pub fn install() -> Result<()> {
-        stop_installed_instance()?;
-        let binary = copy_self_to_install_dir()?;
-        let shortcut = startup_shortcut_path()?;
-        std::fs::create_dir_all(shortcut.parent().expect("shortcut path has a parent"))?;
-
-        // WindowStyle 7 = minimized -- this is a console-subsystem binary,
-        // so a future login-triggered launch via this shortcut still
-        // briefly creates a window; minimized keeps it from popping into
-        // focus. Fully suppressing the window entirely would need a
-        // wscript/.vbs wrapper (WshShortcut has no "hidden" WindowStyle) --
-        // more moving parts than seems worth it for a minimized taskbar
-        // blip once per login.
-        let script = format!(
-            "$WshShell = New-Object -ComObject WScript.Shell; \
-             $Shortcut = $WshShell.CreateShortcut('{}'); \
-             $Shortcut.TargetPath = '{}'; \
-             $Shortcut.WorkingDirectory = '{}'; \
-             $Shortcut.WindowStyle = 7; \
-             $Shortcut.Save()",
-            shortcut.display(),
+    /// The task definition, as Task Scheduler XML.
+    ///
+    /// Two triggers, both load-bearing:
+    /// - `LogonTrigger` starts it promptly at logon.
+    /// - `TimeTrigger`, with an indefinite one-minute repetition, is the
+    ///   supervisor: it re-runs the action every minute forever, which is
+    ///   what brings the service back after a crash or a kill. This is the
+    ///   counterpart to the Linux unit's `Restart=on-failure`. Without it a
+    ///   single death means dead until the next logon -- exactly the
+    ///   failure mode the old Startup-shortcut install had.
+    ///
+    /// `MultipleInstancesPolicy=IgnoreNew` is what makes that repetition
+    /// safe: while the process lives the task counts as running, so each
+    /// minute's run is skipped. Task Scheduler supplies the single-instance
+    /// guard itself -- no mutex or PID file needed.
+    ///
+    /// `InteractiveToken` keeps it in the logged-on user's session, which
+    /// the module docs above explain is required for reliable USB
+    /// notification delivery. `ExecutionTimeLimit` of `PT0S` means "no
+    /// limit" -- the default would kill this long-lived process after three
+    /// days.
+    fn task_xml(binary: &std::path::Path) -> Result<String> {
+        let user_name = std::env::var("USERNAME").context("%USERNAME% is not set")?;
+        let user = match std::env::var("USERDOMAIN") {
+            Ok(domain) if !domain.is_empty() => format!("{domain}\\{user_name}"),
+            _ => user_name,
+        };
+        let working_dir = binary.parent().expect("binary path has a parent");
+        Ok(format!(
+            r#"<Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>bad_kvm_switch - automatic DDC/CI monitor switching</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>{user}</UserId>
+    </LogonTrigger>
+    <TimeTrigger>
+      <Enabled>true</Enabled>
+      <StartBoundary>2020-01-01T00:00:00</StartBoundary>
+      <Repetition>
+        <Interval>PT1M</Interval>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+    </TimeTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>{user}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{}</Command>
+      <WorkingDirectory>{}</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>"#,
             binary.display(),
-            binary.parent().expect("binary path has a parent").display(),
-        );
-        run_powershell(&script)
-            .with_context(|| format!("failed to create shortcut at {}", shortcut.display()))?;
+            working_dir.display(),
+        ))
+    }
 
-        // Start it now too, for parity with Linux's `enable --now` -- don't
-        // wait for the next login to see it working. Unlike the shortcut
-        // above, spawning directly lets us fully suppress the console
-        // window via CREATE_NO_WINDOW rather than just minimizing it.
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        Command::new(&binary)
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .with_context(|| format!("failed to launch {}", binary.display()))?;
+    fn register_task(binary: &std::path::Path) -> Result<()> {
+        let xml = task_xml(binary)?;
+        // Handed over as a file rather than inline: the XML carries quotes
+        // and newlines that would need brittle escaping through a
+        // PowerShell `-Command` string.
+        let xml_path = std::env::temp_dir().join("bad_kvm_switch_task.xml");
+        std::fs::write(&xml_path, xml)
+            .with_context(|| format!("failed to write {}", xml_path.display()))?;
+        let script = format!(
+            "Register-ScheduledTask -TaskName '{TASK_NAME}' \
+             -Xml (Get-Content -Raw -Path '{}') -Force | Out-Null",
+            xml_path.display()
+        );
+        let result = run_powershell(&script)
+            .with_context(|| format!("failed to register scheduled task '{TASK_NAME}'"));
+        let _ = std::fs::remove_file(&xml_path);
+        result
+    }
+
+    fn task_exists() -> Result<bool> {
+        let out = powershell_output(&format!(
+            "if (Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue) \
+             {{ 'True' }} else {{ 'False' }}"
+        ))?;
+        Ok(out == "True")
+    }
+
+    fn unregister_task() -> Result<bool> {
+        if !task_exists()? {
+            return Ok(false);
+        }
+        run_powershell(&format!(
+            "Unregister-ScheduledTask -TaskName '{TASK_NAME}' -Confirm:$false"
+        ))?;
+        Ok(true)
+    }
+
+    /// Best-effort: a task that isn't registered, or isn't running, is a
+    /// normal state here rather than a failure.
+    fn stop_task() {
+        let _ = run_powershell(&format!(
+            "Stop-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue"
+        ));
+    }
+
+    pub fn install() -> Result<()> {
+        // Stop the task before the process: otherwise the one-minute
+        // repetition could relaunch the old binary in the window between
+        // killing it and copying the new one over the top.
+        stop_task();
+        stop_installed_instance()?;
+
+        let binary = copy_self_to_install_dir()?;
+        remove_legacy_shortcut()?;
+        register_task(&binary)?;
+
+        // Start through the task rather than spawning directly: an instance
+        // Task Scheduler didn't launch isn't covered by `IgnoreNew`, so the
+        // next repetition would start a second one alongside it.
+        run_powershell(&format!("Start-ScheduledTask -TaskName '{TASK_NAME}'"))
+            .with_context(|| format!("failed to start scheduled task '{TASK_NAME}'"))?;
 
         println!("Installed and started (binary copied to {}).", binary.display());
-        println!("Shortcut created at {} -- will auto-start on next login.", shortcut.display());
+        println!(
+            "Scheduled task '{TASK_NAME}' starts it at logon and re-checks every minute, so a \
+             crash or a kill is recovered automatically."
+        );
+        println!("Inspect it any time with: Get-ScheduledTask -TaskName {TASK_NAME}");
         Ok(())
     }
 
     pub fn uninstall() -> Result<()> {
+        stop_task();
         stop_installed_instance()?;
-        let shortcut = startup_shortcut_path()?;
-        if shortcut.exists() {
-            std::fs::remove_file(&shortcut)
-                .with_context(|| format!("failed to remove {}", shortcut.display()))?;
-            println!("Removed startup shortcut at {} and stopped the running instance.", shortcut.display());
+        let removed = unregister_task()?;
+        remove_legacy_shortcut()?;
+        if removed {
+            println!("Removed scheduled task '{TASK_NAME}' and stopped the running instance.");
         } else {
-            println!("Not installed (no shortcut at {}).", shortcut.display());
+            println!("Not installed (no scheduled task named '{TASK_NAME}').");
         }
         Ok(())
     }
 
     pub fn status() -> Result<()> {
-        let shortcut = startup_shortcut_path()?;
-        if shortcut.exists() {
-            println!("Installed: startup shortcut present at {}.", shortcut.display());
+        if task_exists()? {
+            println!("Installed: scheduled task '{TASK_NAME}' is registered.");
         } else {
-            println!("Not installed (no shortcut at {}).", shortcut.display());
+            println!("Not installed (no scheduled task named '{TASK_NAME}').");
+        }
+
+        if legacy_startup_shortcut_path()?.exists() {
+            println!(
+                "Note: a legacy startup shortcut is still present -- re-run `install` to remove it."
+            );
         }
 
         // Two bugs caught testing this live: (1) `-ne $null` on a possibly-
@@ -262,17 +400,12 @@ mod platform {
         // doesn't get mistaken for the installed service either.
         let installed_path = installed_binary_path()?;
         let current_pid = std::process::id();
-        let script = format!(
+        let is_running = powershell_output(&format!(
             "$p = Get-Process -Name bad_kvm_switch -ErrorAction SilentlyContinue | \
              Where-Object {{ $_.Id -ne {current_pid} -and $_.Path -eq '{}' }}; \
              if ($p) {{ 'True' }} else {{ 'False' }}",
             installed_path.display()
-        );
-        let running = Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-            .output()
-            .context("failed to query running processes")?;
-        let is_running = String::from_utf8_lossy(&running.stdout).trim() == "True";
+        ))? == "True";
         println!("Currently running: {is_running}");
         Ok(())
     }

@@ -84,6 +84,12 @@ fn main() -> anyhow::Result<()> {
 fn run_service(config_path: Option<&std::path::Path>) -> anyhow::Result<()> {
     let config = load_config(config_path)?;
 
+    // Must precede logging setup: freeing the console invalidates stdout,
+    // and `stdout_supports_ansi()` needs to observe that so it doesn't
+    // write escape codes into a dead handle.
+    #[cfg(target_os = "windows")]
+    free_owned_console();
+
     // Keep the file-writer guard alive for the process's lifetime --
     // dropping it stops the background thread that flushes file logs.
     let _log_guard = init_logging(&config.log_level)?;
@@ -108,9 +114,19 @@ fn run_service(config_path: Option<&std::path::Path>) -> anyhow::Result<()> {
         config.switch_method
     );
 
-    usb_watch::watch(config.usb_vendor_id, config.usb_product_id, move || {
+    let result = usb_watch::watch(config.usb_vendor_id, config.usb_product_id, move || {
         switch_with_retry(&config);
-    })
+    });
+
+    // The installed service runs with no console, so letting this `Err`
+    // propagate to `main` would print it to a stderr that goes nowhere --
+    // the file log would just stop mid-stream with no cause recorded.
+    // Logging it here, while `_log_guard` is still alive to flush it, is
+    // what makes an unexpected exit diagnosable at all.
+    if let Err(e) = &result {
+        tracing::error!("fatal, exiting: {e:#}");
+    }
+    result
 }
 
 fn load_config(path: Option<&std::path::Path>) -> anyhow::Result<Config> {
@@ -170,6 +186,38 @@ fn stdout_supports_ansi() -> bool {
     #[cfg(not(target_os = "windows"))]
     {
         true
+    }
+}
+
+/// Close our console window if -- and only if -- this process is the sole
+/// owner of it.
+///
+/// Task Scheduler launches a console-subsystem binary with a *fresh*
+/// console, whose window would then sit on screen for the service's entire
+/// life; that's precisely what a background service must not do. When the
+/// console is ours alone (the scheduler case, and any detached launch)
+/// `GetConsoleProcessList` reports exactly one attached process, and
+/// freeing it closes the window. Run from a shell, that shell is attached
+/// too, so the count is >= 2 and we leave the user's terminal alone.
+///
+/// Note this is a *statically* linked kernel32 import, not a `libloading`
+/// lookup, so the wrong-function-pointer-type trap documented in AGENTS.md
+/// for `adl.rs` doesn't apply here.
+#[cfg(target_os = "windows")]
+fn free_owned_console() {
+    unsafe extern "system" {
+        fn GetConsoleProcessList(lpdwProcessList: *mut u32, dwProcessCount: u32) -> u32;
+        fn FreeConsole() -> i32;
+    }
+
+    // Only the count matters, but the API still needs somewhere to write
+    // PIDs; two slots is enough to distinguish "just us" from "shared".
+    let mut pids = [0u32; 2];
+    let attached = unsafe { GetConsoleProcessList(pids.as_mut_ptr(), pids.len() as u32) };
+    if attached == 1 {
+        // Ignoring the result: if there's no console to free this fails
+        // harmlessly, and there is nothing useful to do about it either way.
+        unsafe { FreeConsole() };
     }
 }
 

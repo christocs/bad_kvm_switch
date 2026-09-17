@@ -55,6 +55,11 @@ writes rotating file logs (7 days kept) to the platform data dir
 `~/.local/share/bad_kvm_switch/logs` on Linux) so the installed
 background service isn't a black box.
 
+The installed service is also supervised on both platforms, so an
+unexpected exit is restarted automatically instead of silently leaving you
+without switching, and the cause is written to the log before the process
+goes away.
+
 ## Two ways to switch the input
 
 Most monitors support the standard DDC/CI "Input Select" command
@@ -129,12 +134,17 @@ Then run it:
 cargo run
 ```
 
-Or install it as a per-user background service (auto-starts on login, no
-admin/root needed):
+Or install it as a per-user background service (auto-starts on login,
+restarts itself if it dies, no window, no admin/root needed):
 
 ```sh
 cargo run -- install
 ```
+
+On Linux that's a systemd user unit with `Restart=on-failure`; on Windows
+it's a Task Scheduler logon task that re-checks every minute, so a crash
+or a kill is recovered in about a minute rather than waiting for your next
+logon.
 
 See [SKILLS.md](SKILLS.md) for how to find each config value for your own
 hardware, the debug subcommands (`list`, `watch`, `ddc-get`,
